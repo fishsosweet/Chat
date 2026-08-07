@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/.vite
+**/.DS_Store
+**/npm-debug.log
+.git
+.gitignore
+.env
+.env.*
+admin/.env*
+client/.env*
+server/.env*

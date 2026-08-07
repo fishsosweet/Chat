@@ -1,0 +1,86 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg: 247 249 252;
+    --card: 255 255 255;
+    --text: 15 23 42;
+    --muted: 71 85 105;
+    --line: 226 232 240;
+    --accent: 13 148 136;
+  }
+
+  :root[data-theme="dark"] {
+    --bg: 2 6 23;
+    --card: 15 23 42;
+    --text: 226 232 240;
+    --muted: 148 163 184;
+    --line: 51 65 85;
+    --accent: 45 212 191;
+  }
+
+  * {
+    @apply border-slate-200;
+  }
+
+  body {
+    margin: 0;
+    font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
+    color: rgb(var(--text));
+    background: rgb(var(--bg));
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .auth-background {
+    background:
+      radial-gradient(circle at 18% 12%, rgba(20, 184, 166, 0.15), transparent 34%),
+      radial-gradient(circle at 82% 86%, rgba(14, 116, 144, 0.15), transparent 32%),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(241, 245, 249, 0.95));
+  }
+
+  :root[data-theme="dark"] .auth-background {
+    background:
+      radial-gradient(circle at 18% 12%, rgba(45, 212, 191, 0.15), transparent 36%),
+      radial-gradient(circle at 82% 86%, rgba(56, 189, 248, 0.12), transparent 34%),
+      linear-gradient(135deg, rgba(2, 6, 23, 0.98), rgba(15, 23, 42, 0.98));
+  }
+
+  .chat-background {
+    background:
+      repeating-linear-gradient(
+        -45deg,
+        rgba(148, 163, 184, 0.06),
+        rgba(148, 163, 184, 0.06) 1px,
+        transparent 1px,
+        transparent 12px
+      ),
+      linear-gradient(160deg, rgba(248, 250, 252, 0.98), rgba(226, 232, 240, 0.98));
+  }
+
+  :root[data-theme="dark"] .chat-background {
+    background:
+      repeating-linear-gradient(
+        -45deg,
+        rgba(30, 41, 59, 0.5),
+        rgba(30, 41, 59, 0.5) 1px,
+        transparent 1px,
+        transparent 12px
+      ),
+      linear-gradient(160deg, rgba(2, 6, 23, 0.98), rgba(15, 23, 42, 0.98));
+  }
+}
