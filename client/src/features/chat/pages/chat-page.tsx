@@ -446,7 +446,7 @@ export function ChatPage() {
 
     const handleReceive = (payload: {
       conversationId: string;
-      message: { id: string; content: string | null; senderId: string; createdAt: string; type?: string; clientMessageId?: string };
+      message: { id: string; content: string | null; senderId: string; createdAt: string; type?: string; clientMessageId?: string; replyToMessageId?: string | null };
     }) => {
       if (payload.conversationId !== selectedConversationId) {
         return;
@@ -466,6 +466,10 @@ export function ChatPage() {
           return true;
         });
 
+        const replyParent = payload.message.replyToMessageId
+          ? current.find((m) => m.id === payload.message.replyToMessageId)
+          : undefined;
+
         return [
           ...filtered,
           {
@@ -474,7 +478,9 @@ export function ChatPage() {
             content: payload.message.content ?? "",
             fromSelf: payload.message.senderId === user?.id,
             createdAt: payload.message.createdAt,
-            type: payload.message.type
+            type: payload.message.type,
+            replyToMessageId: payload.message.replyToMessageId ?? undefined,
+            replyToContent: replyParent?.content
           }
         ];
       });
@@ -613,16 +619,27 @@ export function ChatPage() {
           return;
         }
 
-        setMessages(
-          page.items.map((item) => ({
-            id: item.id,
-            content: item.content ?? "",
-            fromSelf: item.senderId === user?.id,
-            createdAt: item.createdAt,
-            replyToMessageId: item.replyToMessageId ?? undefined,
-            replyToContent: undefined
-          }))
-        );
+        const items = page.items.map((item) => ({
+          id: item.id,
+          content: item.content ?? "",
+          fromSelf: item.senderId === user?.id,
+          createdAt: item.createdAt,
+          type: item.type,
+          replyToMessageId: item.replyToMessageId ?? undefined,
+          replyToContent: undefined as string | undefined
+        }));
+
+        // Populate reply quotes from the same page
+        const byId = new Map(items.map((m) => [m.id, m]));
+        for (const m of items) {
+          if (m.replyToMessageId) {
+            m.replyToContent = byId.get(m.replyToMessageId)?.content;
+          }
+        }
+
+        if (!cancelled) {
+          setMessages(items);
+        }
       } catch {
         if (!cancelled) {
           setMessages([]);
@@ -670,7 +687,9 @@ export function ChatPage() {
         content: messageContent,
         fromSelf: true,
         createdAt: new Date().toISOString(),
-        type: "TEXT"
+        type: "TEXT",
+        replyToMessageId: replyMessage?.id,
+        replyToContent: replyMessage?.content
       }
     ]);
 
@@ -689,18 +708,35 @@ export function ChatPage() {
     }, 600);
   };
 
-  const readFileAsDataUrl = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          resolve(reader.result);
+  const compressImage = (file: File, maxPx: number, quality: number): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const objectUrl = URL.createObjectURL(file);
+      const img = new window.Image();
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        let { width, height } = img;
+        if (width > maxPx || height > maxPx) {
+          if (width >= height) {
+            height = Math.round((height * maxPx) / width);
+            width = maxPx;
+          } else {
+            width = Math.round((width * maxPx) / height);
+            height = maxPx;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("No 2d context"));
           return;
         }
-        reject(new Error("Failed to read file"));
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
       };
-      reader.onerror = () => reject(new Error("Failed to read file"));
-      reader.readAsDataURL(file);
+      img.onerror = () => reject(new Error("Image load error"));
+      img.src = objectUrl;
     });
 
   const saveProfile = async () => {
@@ -738,7 +774,8 @@ export function ChatPage() {
     }
 
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      // Compress to 64px to fit VARCHAR(2048) in DB
+      const dataUrl = await compressImage(file, 64, 0.65);
       setProfileDraft((current) => ({ ...current, avatarUrl: dataUrl }));
       const updated = await authApi.updateProfile({ avatarUrl: dataUrl });
       authStore.setState({ user: updated });
@@ -758,7 +795,7 @@ export function ChatPage() {
 
     try {
       setIsSendingMessage(true);
-      const dataUrl = await readFileAsDataUrl(file);
+      const dataUrl = await compressImage(file, 800, 0.72);
       const clientMessageId = `client_${Date.now()}`;
       const socket = getSocket();
       if (!socket) {
@@ -805,22 +842,10 @@ export function ChatPage() {
   };
 
   const sendReaction = (messageId: string, reaction: string) => {
-    const socket = getSocket();
-    if (!socket || !selectedConversationId) {
-      return;
-    }
-
+    // Local-only optimistic reaction – no new message bubble
     setMessages((current) =>
       current.map((item) => (item.id === messageId ? { ...item, reaction } : item))
     );
-
-    socket.emit("send_message", {
-      conversationId: selectedConversationId,
-      content: reaction,
-      type: "TEXT",
-      clientMessageId: `reaction_${Date.now()}`,
-      replyToMessageId: messageId
-    });
     setReactingMessageId(null);
   };
 

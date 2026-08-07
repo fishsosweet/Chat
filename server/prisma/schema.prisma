@@ -140,8 +140,8 @@ model User {
   username        String?      @unique @db.VarChar(64)
   fullName        String       @db.VarChar(120)
   passwordHash    String       @db.VarChar(255)
-  avatarUrl       String?      @db.VarChar(2048)
-  coverUrl        String?      @db.VarChar(2048)
+  avatarUrl       String?      @db.Text
+  coverUrl        String?      @db.Text
   bio             String?      @db.VarChar(500)
   presence        UserPresence @default(OFFLINE)
   isOnline        Boolean      @default(false)
