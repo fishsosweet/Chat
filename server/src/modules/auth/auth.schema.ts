@@ -56,12 +56,14 @@ export const changePasswordSchema = z.object({
 });
 
 export const updateProfileSchema = z.object({
-  body: z.object({
-    fullName: z.string().trim().min(2).max(120).optional(),
-    bio: z.string().trim().max(500).nullable().optional(),
-    avatarUrl: z.string().trim().max(2048).nullable().optional(),
-    coverUrl: z.string().trim().max(2048).nullable().optional()
-  })
+  body: z
+    .object({
+      fullName: z.string().trim().max(120).optional(),
+      bio: z.string().trim().max(500).nullable().optional(),
+      avatarUrl: z.string().trim().max(2048).nullable().optional(),
+      coverUrl: z.string().trim().max(2048).nullable().optional()
+    })
+    .passthrough()
 });
 
 export const verifyEmailSchema = z.object({

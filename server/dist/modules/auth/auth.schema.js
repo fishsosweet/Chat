@@ -51,12 +51,14 @@ exports.changePasswordSchema = zod_1.z.object({
     })
 });
 exports.updateProfileSchema = zod_1.z.object({
-    body: zod_1.z.object({
-        fullName: zod_1.z.string().trim().min(2).max(120).optional(),
+    body: zod_1.z
+        .object({
+        fullName: zod_1.z.string().trim().max(120).optional(),
         bio: zod_1.z.string().trim().max(500).nullable().optional(),
         avatarUrl: zod_1.z.string().trim().max(2048).nullable().optional(),
         coverUrl: zod_1.z.string().trim().max(2048).nullable().optional()
     })
+        .passthrough()
 });
 exports.verifyEmailSchema = zod_1.z.object({
     body: zod_1.z.object({

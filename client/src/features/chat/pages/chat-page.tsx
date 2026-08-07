@@ -87,6 +87,7 @@ export function ChatPage() {
 
   const chatImageInputRef = useRef<HTMLInputElement | null>(null);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -631,6 +632,14 @@ export function ChatPage() {
 
   const orderedMessages = useMemo(() => messages.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [messages]);
 
+  useEffect(() => {
+    if (!selectedConversationId) {
+      return;
+    }
+
+    scrollToLatestMessage();
+  }, [selectedConversationId, orderedMessages.length]);
+
   const sendMessage = () => {
     if (!selectedConversationId || !draftMessage.trim() || isSendingMessage) {
       return;
@@ -665,7 +674,10 @@ export function ChatPage() {
       clientMessageId
     });
 
-    window.setTimeout(() => setIsSendingMessage(false), 600);
+    window.setTimeout(() => {
+      setIsSendingMessage(false);
+      scrollToLatestMessage();
+    }, 600);
   };
 
   const readFileAsDataUrl = (file: File) =>
@@ -685,11 +697,22 @@ export function ChatPage() {
   const saveProfile = async () => {
     try {
       setIsSavingProfile(true);
-      const updated = await authApi.updateProfile({
-        fullName: profileDraft.fullName.trim(),
-        bio: profileDraft.bio.trim(),
-        avatarUrl: profileDraft.avatarUrl.trim()
-      });
+      const payload: { fullName?: string; bio?: string; avatarUrl?: string } = {};
+      const nextFullName = profileDraft.fullName.trim();
+      const nextBio = profileDraft.bio.trim();
+      const nextAvatarUrl = profileDraft.avatarUrl.trim();
+
+      if (nextFullName) {
+        payload.fullName = nextFullName;
+      }
+      if (nextBio) {
+        payload.bio = nextBio;
+      }
+      if (nextAvatarUrl) {
+        payload.avatarUrl = nextAvatarUrl;
+      }
+
+      const updated = await authApi.updateProfile(payload);
       authStore.setState({ user: updated });
       setShowProfilePanel(false);
     } catch (error) {
@@ -759,6 +782,15 @@ export function ChatPage() {
     }
   };
 
+  const scrollToLatestMessage = () => {
+    window.requestAnimationFrame(() => {
+      messagesContainerRef.current?.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: "smooth"
+      });
+    });
+  };
+
   const openProfilePanel = async () => {
     setShowProfilePanel(true);
 
@@ -820,9 +852,25 @@ export function ChatPage() {
       <div className="mx-auto grid h-[calc(100vh-2rem)] max-w-[1500px] grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
         <Card className="flex h-full flex-col overflow-hidden border-0 shadow-[0_20px_60px_-20px_rgba(15,23,42,0.35)]">
           <header className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-sky-600 to-indigo-600 px-4 py-3 text-white">
-            <div>
-              <p className="text-sm text-sky-100">Welcome back</p>
-              <h2 className="text-lg font-semibold">{user?.fullName ?? "User"}</h2>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTargetUserId(null);
+                  setShowProfilePanel(true);
+                }}
+                className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-white/40 bg-white/20 text-sm font-semibold text-white"
+              >
+                {user?.avatarUrl ? (
+                  <img src={user.avatarUrl} alt="user avatar" className="h-full w-full object-cover" />
+                ) : (
+                  (user?.fullName?.slice(0, 1).toUpperCase() ?? "U")
+                )}
+              </button>
+              <div>
+                <p className="text-sm text-sky-100">Welcome back</p>
+                <h2 className="text-lg font-semibold">{user?.fullName ?? "User"}</h2>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <ThemeToggle />
@@ -1164,7 +1212,7 @@ export function ChatPage() {
             </div>
           ) : null}
 
-          <div className="flex-1 space-y-3 overflow-auto bg-[linear-gradient(180deg,_#f8fbff_0%,_#f8fafc_100%)] p-4">
+          <div ref={messagesContainerRef} className="flex-1 space-y-3 overflow-auto bg-[linear-gradient(180deg,_#f8fbff_0%,_#f8fafc_100%)] p-4">
             {orderedMessages.length === 0 ? (
               <p className="text-sm text-slate-500">No messages yet.</p>
             ) : (
