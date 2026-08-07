@@ -276,6 +276,78 @@ export const getMe = async (userId: string) => {
   return user;
 };
 
+export const getUserProfile = async (userId: string) => {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      fullName: true,
+      username: true,
+      phone: true,
+      avatarUrl: true,
+      coverUrl: true,
+      bio: true,
+      emailVerifiedAt: true,
+      isOnline: true,
+      lastSeenAt: true,
+      createdAt: true,
+      updatedAt: true
+    }
+  });
+
+  if (!user) {
+    throw new AppError("User not found", 404);
+  }
+
+  return user;
+};
+
+export const updateProfile = async (userId: string, input: { fullName?: string; bio?: string | null; avatarUrl?: string | null; coverUrl?: string | null }) => {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+
+  if (!user) {
+    throw new AppError("User not found", 404);
+  }
+
+  const nextData: Record<string, unknown> = {};
+
+  if (input.fullName !== undefined) {
+    nextData.fullName = input.fullName.trim();
+  }
+  if (input.bio !== undefined) {
+    nextData.bio = input.bio?.trim() ? input.bio.trim() : null;
+  }
+  if (input.avatarUrl !== undefined) {
+    nextData.avatarUrl = input.avatarUrl?.trim() ? input.avatarUrl.trim() : null;
+  }
+  if (input.coverUrl !== undefined) {
+    nextData.coverUrl = input.coverUrl?.trim() ? input.coverUrl.trim() : null;
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: nextData,
+    select: {
+      id: true,
+      email: true,
+      fullName: true,
+      username: true,
+      phone: true,
+      avatarUrl: true,
+      coverUrl: true,
+      bio: true,
+      emailVerifiedAt: true,
+      isOnline: true,
+      lastSeenAt: true,
+      createdAt: true,
+      updatedAt: true
+    }
+  });
+
+  return updated;
+};
+
 export const listMySessions = async (userId: string) => {
   return prisma.session.findMany({
     where: { userId },

@@ -55,6 +55,15 @@ export const changePasswordSchema = z.object({
   })
 });
 
+export const updateProfileSchema = z.object({
+  body: z.object({
+    fullName: z.string().trim().min(2).max(120).optional(),
+    bio: z.string().trim().max(500).nullable().optional(),
+    avatarUrl: z.string().trim().max(2048).nullable().optional(),
+    coverUrl: z.string().trim().max(2048).nullable().optional()
+  })
+});
+
 export const verifyEmailSchema = z.object({
   body: z.object({
     token: z.string().min(1)

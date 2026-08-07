@@ -1,5 +1,5 @@
 import axios from "axios";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, resolveApiBaseUrl } from "@/lib/api-client";
 import type { ApiResponse } from "@/types/api";
 
 export interface AuthUser {
@@ -64,8 +64,24 @@ export const authApi = {
     return data.data;
   },
 
+  async getUserProfile(userId: string): Promise<AuthUser> {
+    const { data } = await apiClient.get<ApiResponse<AuthUser>>(`/auth/users/${userId}`);
+    if (!data.success) {
+      throw new Error(data.message);
+    }
+    return data.data;
+  },
+
+  async updateProfile(payload: { fullName?: string; bio?: string; avatarUrl?: string; coverUrl?: string }): Promise<AuthUser> {
+    const { data } = await apiClient.patch<ApiResponse<AuthUser>>("/auth/profile", payload);
+    if (!data.success) {
+      throw new Error(data.message);
+    }
+    return data.data;
+  },
+
   async refresh(): Promise<AuthData> {
-    const baseURL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080/api/v1";
+    const baseURL = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
     const { data } = await axios.post<ApiResponse<AuthData>>(
       `${baseURL}/auth/refresh`,
       {},

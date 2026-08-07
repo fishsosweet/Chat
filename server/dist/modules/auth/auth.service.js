@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.buildAuthResponse = exports.verifyEmail = exports.resetPassword = exports.forgotPassword = exports.changePassword = exports.revokeSessionById = exports.listMySessions = exports.getMe = exports.logoutAllDevices = exports.logout = exports.refreshSession = exports.login = exports.register = void 0;
+exports.buildAuthResponse = exports.verifyEmail = exports.resetPassword = exports.forgotPassword = exports.changePassword = exports.revokeSessionById = exports.listMySessions = exports.updateProfile = exports.getUserProfile = exports.getMe = exports.logoutAllDevices = exports.logout = exports.refreshSession = exports.login = exports.register = void 0;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const dayjs_1 = __importDefault(require("dayjs"));
 const client_1 = require("@prisma/client");
@@ -216,6 +216,71 @@ const getMe = async (userId) => {
     return user;
 };
 exports.getMe = getMe;
+const getUserProfile = async (userId) => {
+    const user = await prisma_1.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+            id: true,
+            email: true,
+            fullName: true,
+            username: true,
+            phone: true,
+            avatarUrl: true,
+            coverUrl: true,
+            bio: true,
+            emailVerifiedAt: true,
+            isOnline: true,
+            lastSeenAt: true,
+            createdAt: true,
+            updatedAt: true
+        }
+    });
+    if (!user) {
+        throw new app_error_1.AppError("User not found", 404);
+    }
+    return user;
+};
+exports.getUserProfile = getUserProfile;
+const updateProfile = async (userId, input) => {
+    const user = await prisma_1.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+        throw new app_error_1.AppError("User not found", 404);
+    }
+    const nextData = {};
+    if (input.fullName !== undefined) {
+        nextData.fullName = input.fullName.trim();
+    }
+    if (input.bio !== undefined) {
+        nextData.bio = input.bio?.trim() ? input.bio.trim() : null;
+    }
+    if (input.avatarUrl !== undefined) {
+        nextData.avatarUrl = input.avatarUrl?.trim() ? input.avatarUrl.trim() : null;
+    }
+    if (input.coverUrl !== undefined) {
+        nextData.coverUrl = input.coverUrl?.trim() ? input.coverUrl.trim() : null;
+    }
+    const updated = await prisma_1.prisma.user.update({
+        where: { id: userId },
+        data: nextData,
+        select: {
+            id: true,
+            email: true,
+            fullName: true,
+            username: true,
+            phone: true,
+            avatarUrl: true,
+            coverUrl: true,
+            bio: true,
+            emailVerifiedAt: true,
+            isOnline: true,
+            lastSeenAt: true,
+            createdAt: true,
+            updatedAt: true
+        }
+    });
+    return updated;
+};
+exports.updateProfile = updateProfile;
 const listMySessions = async (userId) => {
     return prisma_1.prisma.session.findMany({
         where: { userId },

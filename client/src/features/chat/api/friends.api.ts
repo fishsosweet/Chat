@@ -110,5 +110,13 @@ export const friendsApi = {
     }
 
     return data.data;
+  },
+
+  async removeFriend(userId: string): Promise<void> {
+    const { data } = await apiClient.delete<ApiResponse<unknown>>(`/friends/list/${userId}`);
+
+    if (!data.success) {
+      throw new Error(data.message ?? "Cannot remove friend");
+    }
   }
 };

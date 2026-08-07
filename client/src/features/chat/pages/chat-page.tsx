@@ -1,5 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Phone, PhoneOff, Search, SendHorizonal, UserPlus, Video, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import {
+  Check,
+  Image,
+  MoreHorizontal,
+  Phone,
+  PhoneOff,
+  Search,
+  SendHorizonal,
+  Smile,
+  UserCircle2,
+  UserMinus,
+  UserPlus,
+  Video,
+  X
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -8,6 +22,7 @@ import { ConversationList } from "@/features/chat/components/conversation-list";
 import { authStore } from "@/features/auth/store/auth.store";
 import { connectSocket, getSocket } from "@/lib/socket-client";
 import { chatApi } from "@/features/chat/api/chat.api";
+import { authApi, type AuthUser } from "@/features/auth/api/auth.api";
 import type { ConversationItem } from "@/features/chat/api/chat.api";
 import { rtcApi } from "@/features/chat/api/rtc.api";
 import {
@@ -16,6 +31,7 @@ import {
   type FriendRequestItem,
   type FriendSearchItem
 } from "@/features/chat/api/friends.api";
+import { stickerPack } from "@/features/chat/components/stickers";
 
 type CallMode = "VOICE" | "VIDEO";
 
@@ -28,9 +44,11 @@ interface IncomingCall {
 
 interface LocalMessage {
   id: string;
+  clientId?: string;
   content: string;
   fromSelf: boolean;
   createdAt: string;
+  type?: string;
 }
 
 export function ChatPage() {
@@ -59,6 +77,16 @@ export function ChatPage() {
   const [friendPanelBusy, setFriendPanelBusy] = useState(false);
   const [friendError, setFriendError] = useState("");
   const [callError, setCallError] = useState("");
+  const [showProfilePanel, setShowProfilePanel] = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [profileDraft, setProfileDraft] = useState({ fullName: user?.fullName ?? "", bio: user?.bio ?? "", avatarUrl: user?.avatarUrl ?? "" });
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [viewedProfile, setViewedProfile] = useState<AuthUser | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
+
+  const chatImageInputRef = useRef<HTMLInputElement | null>(null);
+  const profileImageInputRef = useRef<HTMLInputElement | null>(null);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -127,6 +155,20 @@ export function ChatPage() {
       setFriendError(error instanceof Error ? error.message : "Friend action failed");
     } finally {
       setFriendPanelBusy(false);
+    }
+  };
+
+  const handleRemoveFriend = async (friendId: string) => {
+    try {
+      await friendsApi.removeFriend(friendId);
+      await loadFriendPanelData();
+      if (selectedConversationId) {
+        setSelectedConversationId(null);
+        setSelectedTargetUserId(null);
+        setSelectedConversationTitle(null);
+      }
+    } catch (error) {
+      setFriendError(error instanceof Error ? error.message : "Cannot remove friend");
     }
   };
 
@@ -216,6 +258,14 @@ export function ChatPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    setProfileDraft({
+      fullName: user?.fullName ?? "",
+      bio: user?.bio ?? "",
+      avatarUrl: user?.avatarUrl ?? ""
+    });
+  }, [user?.fullName, user?.bio, user?.avatarUrl]);
 
   useEffect(() => {
     if (!tokens?.accessToken) {
@@ -390,21 +440,38 @@ export function ChatPage() {
 
     const handleReceive = (payload: {
       conversationId: string;
-      message: { id: string; content: string | null; senderId: string; createdAt: string };
+      message: { id: string; content: string | null; senderId: string; createdAt: string; type?: string; clientMessageId?: string };
     }) => {
       if (payload.conversationId !== selectedConversationId) {
         return;
       }
 
-      setMessages((current) => [
-        ...current.filter((item) => item.id !== payload.message.id),
-        {
-          id: payload.message.id,
-          content: payload.message.content ?? "",
-          fromSelf: payload.message.senderId === user?.id,
-          createdAt: payload.message.createdAt
-        }
-      ]);
+      setMessages((current) => {
+        const filtered = current.filter((item) => {
+          if (item.id === payload.message.id) {
+            return false;
+          }
+          if (payload.message.clientMessageId && item.clientId === payload.message.clientMessageId) {
+            return false;
+          }
+          if (item.id === `optimistic:${payload.message.id}`) {
+            return false;
+          }
+          return true;
+        });
+
+        return [
+          ...filtered,
+          {
+            id: payload.message.id,
+            clientId: payload.message.clientMessageId,
+            content: payload.message.content ?? "",
+            fromSelf: payload.message.senderId === user?.id,
+            createdAt: payload.message.createdAt,
+            type: payload.message.type
+          }
+        ];
+      });
     };
 
     const onFriendshipChanged = () => {
@@ -565,7 +632,7 @@ export function ChatPage() {
   const orderedMessages = useMemo(() => messages.slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt)), [messages]);
 
   const sendMessage = () => {
-    if (!selectedConversationId || !draftMessage.trim()) {
+    if (!selectedConversationId || !draftMessage.trim() || isSendingMessage) {
       return;
     }
 
@@ -575,34 +642,197 @@ export function ChatPage() {
     }
 
     const messageContent = draftMessage.trim();
+    const clientMessageId = `client_${Date.now()}`;
+    setIsSendingMessage(true);
     setDraftMessage("");
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: `optimistic:${clientMessageId}`,
+        clientId: clientMessageId,
+        content: messageContent,
+        fromSelf: true,
+        createdAt: new Date().toISOString(),
+        type: "TEXT"
+      }
+    ]);
 
     socket.emit("send_message", {
       conversationId: selectedConversationId,
       content: messageContent,
       type: "TEXT",
-      clientMessageId: `client_${Date.now()}`
+      clientMessageId
     });
+
+    window.setTimeout(() => setIsSendingMessage(false), 600);
+  };
+
+  const readFileAsDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+          return;
+        }
+        reject(new Error("Failed to read file"));
+      };
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsDataURL(file);
+    });
+
+  const saveProfile = async () => {
+    try {
+      setIsSavingProfile(true);
+      const updated = await authApi.updateProfile({
+        fullName: profileDraft.fullName.trim(),
+        bio: profileDraft.bio.trim(),
+        avatarUrl: profileDraft.avatarUrl.trim()
+      });
+      authStore.setState({ user: updated });
+      setShowProfilePanel(false);
+    } catch (error) {
+      setFriendError(error instanceof Error ? error.message : "Cannot update profile");
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleProfileImageSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setProfileDraft((current) => ({ ...current, avatarUrl: dataUrl }));
+      const updated = await authApi.updateProfile({ avatarUrl: dataUrl });
+      authStore.setState({ user: updated });
+      setFriendError("");
+    } catch (error) {
+      setFriendError(error instanceof Error ? error.message : "Cannot upload avatar");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleChatImageSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedConversationId) {
+      return;
+    }
+
+    try {
+      setIsSendingMessage(true);
+      const dataUrl = await readFileAsDataUrl(file);
+      const clientMessageId = `client_${Date.now()}`;
+      const socket = getSocket();
+      if (!socket) {
+        return;
+      }
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: `optimistic:${clientMessageId}`,
+          clientId: clientMessageId,
+          content: dataUrl,
+          fromSelf: true,
+          createdAt: new Date().toISOString(),
+          type: "IMAGE"
+        }
+      ]);
+
+      socket.emit("send_message", {
+        conversationId: selectedConversationId,
+        content: dataUrl,
+        type: "IMAGE",
+        clientMessageId
+      });
+    } catch (error) {
+      setFriendError(error instanceof Error ? error.message : "Cannot send image");
+    } finally {
+      event.target.value = "";
+      window.setTimeout(() => setIsSendingMessage(false), 600);
+    }
+  };
+
+  const openProfilePanel = async () => {
+    setShowProfilePanel(true);
+
+    if (!selectedTargetUserId) {
+      setViewedProfile(null);
+      return;
+    }
+
+    try {
+      setIsLoadingProfile(true);
+      const profile = await authApi.getUserProfile(selectedTargetUserId);
+      setViewedProfile(profile);
+    } catch (error) {
+      setViewedProfile(null);
+      setFriendError(error instanceof Error ? error.message : "Cannot load profile");
+    } finally {
+      setIsLoadingProfile(false);
+    }
+  };
+
+  const sendSticker = (emoji: string) => {
+    if (!selectedConversationId || isSendingMessage) {
+      return;
+    }
+
+    const socket = getSocket();
+    if (!socket) {
+      return;
+    }
+
+    const clientMessageId = `client_${Date.now()}`;
+    setIsSendingMessage(true);
+    setShowStickerPicker(false);
+
+    setMessages((current) => [
+      ...current,
+      {
+        id: `optimistic:${clientMessageId}`,
+        clientId: clientMessageId,
+        content: emoji,
+        fromSelf: true,
+        createdAt: new Date().toISOString(),
+        type: "STICKER"
+      }
+    ]);
+
+    socket.emit("send_message", {
+      conversationId: selectedConversationId,
+      content: emoji,
+      type: "STICKER",
+      clientMessageId
+    });
+
+    window.setTimeout(() => setIsSendingMessage(false), 600);
   };
 
   return (
-    <div className="chat-background min-h-screen p-4 md:p-6">
-      <div className="mx-auto grid h-[calc(100vh-2rem)] max-w-[1400px] grid-cols-1 gap-4 md:grid-cols-[360px_minmax(0,1fr)]">
-        <Card className="flex h-full flex-col overflow-hidden">
-          <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#f3f8ff,_#eef2ff_45%,_#f8fafc_100%)] p-4 md:p-6">
+      <div className="mx-auto grid h-[calc(100vh-2rem)] max-w-[1500px] grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+        <Card className="flex h-full flex-col overflow-hidden border-0 shadow-[0_20px_60px_-20px_rgba(15,23,42,0.35)]">
+          <header className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-sky-600 to-indigo-600 px-4 py-3 text-white">
             <div>
-              <p className="text-sm text-slate-500">Welcome back</p>
-              <h2 className="text-lg font-semibold text-slate-900">{user?.fullName ?? "User"}</h2>
+              <p className="text-sm text-sky-100">Welcome back</p>
+              <h2 className="text-lg font-semibold">{user?.fullName ?? "User"}</h2>
             </div>
             <div className="flex items-center gap-2">
               <ThemeToggle />
-              <Button variant="ghost" size="sm" onClick={() => void logout()}>
+              <Button variant="ghost" size="sm" className="text-white hover:bg-white/20" onClick={() => void logout()}>
                 Logout
               </Button>
             </div>
           </header>
 
-          <div className="space-y-3 border-b border-slate-200 bg-slate-50/70 p-3">
+          <div className="space-y-3 border-b border-slate-200 bg-slate-50/80 p-3">
             <div className="flex gap-2">
               <Input
                 placeholder="Tim nguoi dung theo ten/email"
@@ -760,14 +990,14 @@ export function ChatPage() {
                     friendList.map((item) => (
                       <div key={item.friendId} className="flex items-center justify-between gap-1 text-[11px]">
                         <span className="truncate">{item.user.fullName}</span>
-                        <Button
-                          size="sm"
-                          className="h-6 px-2"
-                          disabled={friendPanelBusy}
-                          onClick={() => void openDirectConversation(item.user.id, item.user.fullName)}
-                        >
-                          Chat
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button size="sm" className="h-6 px-2" disabled={friendPanelBusy} onClick={() => void openDirectConversation(item.user.id, item.user.fullName)}>
+                            Chat
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-6 px-2" disabled={friendPanelBusy} onClick={() => void handleRemoveFriend(item.friendId)}>
+                            <UserMinus size={12} />
+                          </Button>
+                        </div>
                       </div>
                     ))
                   )}
@@ -790,27 +1020,28 @@ export function ChatPage() {
           </div>
         </Card>
 
-        <Card className="flex h-full flex-col overflow-hidden">
-          <header className="border-b border-slate-200 px-4 py-3">
+        <Card className="flex h-full flex-col overflow-hidden border-0 shadow-[0_20px_60px_-20px_rgba(15,23,42,0.35)]">
+          <header className="border-b border-slate-200 bg-white/90 px-4 py-3">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-base font-semibold text-slate-900">
-                {selectedConversationId ? selectedConversationTitle ?? `Conversation ${selectedConversationId.slice(0, 8)}` : "Choose a conversation"}
-              </h3>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-indigo-500 text-sm font-semibold text-white">
+                  {selectedConversationTitle ? selectedConversationTitle.slice(0, 1).toUpperCase() : "✉"}
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">
+                    {selectedConversationId ? selectedConversationTitle ?? `Conversation ${selectedConversationId.slice(0, 8)}` : "Choose a conversation"}
+                  </h3>
+                  <p className="text-xs text-slate-500">{selectedTargetUserId ? "Online now" : "Select a friend to chat"}</p>
+                </div>
+              </div>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void startCall("VOICE")}
-                  disabled={!selectedConversationId || !selectedTargetUserId || !!activeCallMode}
-                >
+                <Button variant="outline" size="sm" onClick={() => void openProfilePanel()}>
+                  <UserCircle2 size={14} className="mr-1" /> Profile
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => void startCall("VOICE")} disabled={!selectedConversationId || !selectedTargetUserId || !!activeCallMode}>
                   <Phone size={14} className="mr-1" /> Voice
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void startCall("VIDEO")}
-                  disabled={!selectedConversationId || !selectedTargetUserId || !!activeCallMode}
-                >
+                <Button variant="outline" size="sm" onClick={() => void startCall("VIDEO")} disabled={!selectedConversationId || !selectedTargetUserId || !!activeCallMode}>
                   <Video size={14} className="mr-1" /> Video
                 </Button>
                 {activeCallMode ? (
@@ -841,20 +1072,99 @@ export function ChatPage() {
           ) : null}
 
           {activeCallMode ? (
-            <div className="grid gap-2 border-b border-slate-200 bg-slate-900/95 p-3 md:grid-cols-2">
-              <div>
-                <p className="mb-1 text-xs text-slate-300">Local</p>
+            <div className="grid gap-2 border-b border-slate-200 bg-slate-950/95 p-3 md:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-slate-900 p-2">
+                <p className="mb-1 text-xs text-slate-300">You</p>
                 <video ref={localVideoRef} autoPlay muted playsInline className="h-32 w-full rounded bg-slate-800 object-cover" />
               </div>
-              <div>
-                <p className="mb-1 text-xs text-slate-300">Remote</p>
+              <div className="rounded-2xl border border-white/10 bg-slate-900 p-2">
+                <p className="mb-1 text-xs text-slate-300">Friend</p>
                 <video ref={remoteVideoRef} autoPlay playsInline className="h-32 w-full rounded bg-slate-800 object-cover" />
                 <audio ref={remoteAudioRef} autoPlay />
               </div>
             </div>
           ) : null}
 
-          <div className="flex-1 space-y-3 overflow-auto bg-slate-50/70 p-4">
+          {showProfilePanel ? (
+            <div className="border-b border-slate-200 bg-slate-50/90 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">{selectedTargetUserId ? "Friend profile" : "Your profile"}</p>
+                  <p className="text-xs text-slate-500">{selectedTargetUserId ? "Viewing selected contact profile" : "Update your avatar, name, and bio"}</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setShowProfilePanel(false)}>
+                  <MoreHorizontal size={14} />
+                </Button>
+              </div>
+
+              {selectedTargetUserId ? (
+                <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+                  {isLoadingProfile ? (
+                    <p className="text-sm text-slate-500">Loading profile...</p>
+                  ) : viewedProfile ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-indigo-500 text-lg font-semibold text-white">
+                          {viewedProfile.fullName?.slice(0, 1).toUpperCase() || "U"}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-900">{viewedProfile.fullName}</p>
+                          <p className="text-sm text-slate-500">{viewedProfile.bio || "No bio yet"}</p>
+                        </div>
+                      </div>
+                      <p className="text-sm text-slate-600">{viewedProfile.email}</p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">Profile unavailable for this contact.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => profileImageInputRef.current?.click()}
+                      className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-500 to-indigo-500 text-lg font-semibold text-white"
+                    >
+                      {profileDraft.avatarUrl ? (
+                        <img src={profileDraft.avatarUrl} alt="avatar preview" className="h-full w-full object-cover" />
+                      ) : (
+                        profileDraft.fullName?.slice(0, 1).toUpperCase() || "U"
+                      )}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <Input
+                        value={profileDraft.avatarUrl}
+                        onChange={(event) => setProfileDraft((current) => ({ ...current, avatarUrl: event.target.value }))}
+                        placeholder="Avatar URL"
+                      />
+                      <input ref={profileImageInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => void handleProfileImageSelect(event)} />
+                    </div>
+                  </div>
+                  <Input
+                    value={profileDraft.fullName}
+                    onChange={(event) => setProfileDraft((current) => ({ ...current, fullName: event.target.value }))}
+                    placeholder="Full name"
+                  />
+                  <Input
+                    value={profileDraft.bio}
+                    onChange={(event) => setProfileDraft((current) => ({ ...current, bio: event.target.value }))}
+                    placeholder="Bio"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setShowProfilePanel(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="button" size="sm" onClick={() => void saveProfile()} disabled={isSavingProfile}>
+                      {isSavingProfile ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          <div className="flex-1 space-y-3 overflow-auto bg-[linear-gradient(180deg,_#f8fbff_0%,_#f8fafc_100%)] p-4">
             {orderedMessages.length === 0 ? (
               <p className="text-sm text-slate-500">No messages yet.</p>
             ) : (
@@ -863,31 +1173,60 @@ export function ChatPage() {
                   key={message.id}
                   className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
                     message.fromSelf
-                      ? "ml-auto bg-slate-900 text-white"
+                      ? "ml-auto bg-gradient-to-r from-sky-600 to-indigo-600 text-white"
                       : "mr-auto bg-white text-slate-900 shadow-sm"
                   }`}
                 >
-                  {message.content}
+                  {message.type === "STICKER" ? (
+                    <span className="text-2xl">{message.content}</span>
+                  ) : message.type === "IMAGE" ? (
+                    <img src={message.content} alt="sent image" className="max-h-72 max-w-full rounded-xl object-cover" />
+                  ) : (
+                    message.content
+                  )}
                 </div>
               ))
             )}
           </div>
 
-          <footer className="flex gap-2 border-t border-slate-200 p-3">
-            <Input
-              placeholder="Type your message..."
-              value={draftMessage}
-              onChange={(event) => setDraftMessage(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  sendMessage();
-                }
-              }}
-            />
-            <Button onClick={sendMessage} disabled={!selectedConversationId || !draftMessage.trim()}>
-              <SendHorizonal size={16} className="mr-1" /> Send
-            </Button>
+          <footer className="border-t border-slate-200 p-3">
+            {showStickerPicker ? (
+              <div className="mb-3 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+                {stickerPack.map((sticker) => (
+                  <button
+                    key={sticker.id}
+                    type="button"
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-xl transition hover:-translate-y-0.5 hover:bg-slate-50"
+                    onClick={() => sendSticker(sticker.emoji)}
+                  >
+                    {sticker.emoji}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowStickerPicker((value) => !value)}>
+                <Smile size={16} className="mr-1" /> Sticker
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => chatImageInputRef.current?.click()}>
+                <Image size={16} className="mr-1" /> Image
+              </Button>
+              <input ref={chatImageInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => void handleChatImageSelect(event)} />
+              <Input
+                placeholder="Type your message..."
+                value={draftMessage}
+                onChange={(event) => setDraftMessage(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    sendMessage();
+                  }
+                }}
+              />
+              <Button onClick={sendMessage} disabled={!selectedConversationId || !draftMessage.trim() || isSendingMessage}>
+                <SendHorizonal size={16} className="mr-1" /> Send
+              </Button>
+            </div>
           </footer>
         </Card>
       </div>

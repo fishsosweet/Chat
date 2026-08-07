@@ -36,7 +36,9 @@ exports.authRouter.post("/auth/forgot-password", (0, validate_request_middleware
 exports.authRouter.post("/auth/reset-password", (0, validate_request_middleware_1.validateRequest)(auth_schema_1.resetPasswordSchema), (0, async_handler_1.asyncHandler)(auth_controller_1.resetPasswordController));
 exports.authRouter.post("/auth/verify-email", (0, validate_request_middleware_1.validateRequest)(auth_schema_1.verifyEmailSchema), (0, async_handler_1.asyncHandler)(auth_controller_1.verifyEmailController));
 exports.authRouter.get("/auth/me", auth_middleware_1.authMiddleware, (0, async_handler_1.asyncHandler)(auth_controller_1.meController));
+exports.authRouter.get("/auth/users/:userId", auth_middleware_1.authMiddleware, (0, async_handler_1.asyncHandler)(auth_controller_1.getUserProfileController));
 exports.authRouter.get("/auth/sessions", auth_middleware_1.authMiddleware, (0, async_handler_1.asyncHandler)(auth_controller_1.sessionsController));
+exports.authRouter.patch("/auth/profile", auth_middleware_1.authMiddleware, (0, validate_request_middleware_1.validateRequest)(auth_schema_1.updateProfileSchema), (0, async_handler_1.asyncHandler)(auth_controller_1.updateProfileController));
 exports.authRouter.post("/auth/logout", auth_middleware_1.authMiddleware, (0, async_handler_1.asyncHandler)(auth_controller_1.logoutController));
 exports.authRouter.post("/auth/logout-all", auth_middleware_1.authMiddleware, (0, async_handler_1.asyncHandler)(auth_controller_1.logoutAllController));
 exports.authRouter.post("/auth/revoke-session", auth_middleware_1.authMiddleware, (0, validate_request_middleware_1.validateRequest)(auth_schema_1.logoutSessionSchema), (0, async_handler_1.asyncHandler)(auth_controller_1.revokeSessionController));

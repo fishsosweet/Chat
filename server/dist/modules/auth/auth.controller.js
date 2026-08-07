@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.verifyEmailController = exports.resetPasswordController = exports.forgotPasswordController = exports.changePasswordController = exports.revokeSessionController = exports.sessionsController = exports.meController = exports.logoutAllController = exports.logoutController = exports.refreshController = exports.loginController = exports.registerController = void 0;
+exports.verifyEmailController = exports.resetPasswordController = exports.forgotPasswordController = exports.changePasswordController = exports.revokeSessionController = exports.sessionsController = exports.updateProfileController = exports.getUserProfileController = exports.meController = exports.logoutAllController = exports.logoutController = exports.refreshController = exports.loginController = exports.registerController = void 0;
 const auth_1 = require("../../common/constants/auth");
 const app_error_1 = require("../../common/errors/app-error");
 const auth_cookies_1 = require("./auth.cookies");
@@ -100,6 +100,31 @@ const meController = async (req, res) => {
     });
 };
 exports.meController = meController;
+const getUserProfileController = async (req, res) => {
+    if (!req.auth?.userId) {
+        throw new app_error_1.AppError("Unauthorized", 401);
+    }
+    const userId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
+    const user = await (0, auth_service_1.getUserProfile)(userId);
+    res.status(200).json({
+        success: true,
+        data: user,
+        requestId: req.requestId
+    });
+};
+exports.getUserProfileController = getUserProfileController;
+const updateProfileController = async (req, res) => {
+    if (!req.auth?.userId) {
+        throw new app_error_1.AppError("Unauthorized", 401);
+    }
+    const user = await (0, auth_service_1.updateProfile)(req.auth.userId, req.body);
+    res.status(200).json({
+        success: true,
+        data: user,
+        requestId: req.requestId
+    });
+};
+exports.updateProfileController = updateProfileController;
 const sessionsController = async (req, res) => {
     if (!req.auth?.userId) {
         throw new app_error_1.AppError("Unauthorized", 401);

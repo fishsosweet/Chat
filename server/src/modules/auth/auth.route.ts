@@ -10,11 +10,13 @@ import {
   refreshSchema,
   registerSchema,
   resetPasswordSchema,
+  updateProfileSchema,
   verifyEmailSchema
 } from "./auth.schema";
 import {
   changePasswordController,
   forgotPasswordController,
+  getUserProfileController,
   loginController,
   logoutAllController,
   logoutController,
@@ -24,6 +26,7 @@ import {
   resetPasswordController,
   revokeSessionController,
   sessionsController,
+  updateProfileController,
   verifyEmailController
 } from "./auth.controller";
 
@@ -61,7 +64,10 @@ authRouter.post("/auth/reset-password", validateRequest(resetPasswordSchema), as
 authRouter.post("/auth/verify-email", validateRequest(verifyEmailSchema), asyncHandler(verifyEmailController));
 
 authRouter.get("/auth/me", authMiddleware, asyncHandler(meController));
+authRouter.get("/auth/users/:userId", authMiddleware, asyncHandler(getUserProfileController));
 authRouter.get("/auth/sessions", authMiddleware, asyncHandler(sessionsController));
+
+authRouter.patch("/auth/profile", authMiddleware, validateRequest(updateProfileSchema), asyncHandler(updateProfileController));
 
 authRouter.post("/auth/logout", authMiddleware, asyncHandler(logoutController));
 authRouter.post("/auth/logout-all", authMiddleware, asyncHandler(logoutAllController));

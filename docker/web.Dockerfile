@@ -29,6 +29,9 @@ WORKDIR /usr/share/nginx/html
 
 COPY --from=client_builder /app/client/dist ./
 COPY --from=admin_builder /app/admin/dist ./admin
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf.template
+COPY docker/entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 EXPOSE 80
+ENTRYPOINT ["/docker-entrypoint.sh"]

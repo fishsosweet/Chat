@@ -5,12 +5,32 @@ interface RetriableConfig {
   _retry?: boolean;
 }
 
+export function resolveApiBaseUrl(envValue?: string): string {
+  const fallback = "http://localhost:8080/api/v1";
+  const rawValue = envValue?.trim();
+
+  if (!rawValue) {
+    return fallback;
+  }
+
+  const normalized = rawValue.replace(/\/+$/, "");
+
+  if (/\/api\/v\d+$/i.test(normalized)) {
+    return normalized;
+  }
+
+  if (/\/api$/i.test(normalized)) {
+    return `${normalized}/v1`;
+  }
+
+  return `${normalized}/api/v1`;
+}
+
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080/api/v1",
+  baseURL: resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL),
   withCredentials: true,
   timeout: 15_000
 });
-
 apiClient.interceptors.request.use((config) => {
   const accessToken = authStore.getState().tokens?.accessToken;
 

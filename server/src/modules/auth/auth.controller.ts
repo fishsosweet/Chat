@@ -8,6 +8,7 @@ import {
   changePassword,
   forgotPassword,
   getMe,
+  getUserProfile,
   listMySessions,
   login,
   logout,
@@ -16,6 +17,7 @@ import {
   register,
   resetPassword,
   revokeSessionById,
+  updateProfile,
   verifyEmail
 } from "./auth.service";
 
@@ -119,6 +121,35 @@ export const meController = async (req: Request, res: Response): Promise<void> =
   }
 
   const user = await getMe(req.auth.userId);
+
+  res.status(200).json({
+    success: true,
+    data: user,
+    requestId: req.requestId
+  });
+};
+
+export const getUserProfileController = async (req: Request, res: Response): Promise<void> => {
+  if (!req.auth?.userId) {
+    throw new AppError("Unauthorized", 401);
+  }
+
+  const userId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
+  const user = await getUserProfile(userId);
+
+  res.status(200).json({
+    success: true,
+    data: user,
+    requestId: req.requestId
+  });
+};
+
+export const updateProfileController = async (req: Request, res: Response): Promise<void> => {
+  if (!req.auth?.userId) {
+    throw new AppError("Unauthorized", 401);
+  }
+
+  const user = await updateProfile(req.auth.userId, req.body);
 
   res.status(200).json({
     success: true,
