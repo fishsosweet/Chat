@@ -70,7 +70,7 @@ export const registerChatEvents = (io: Server, socket: Socket): void => {
           state: MessageState.SENT,
           content: payload.content,
           clientMessageId: payload.clientMessageId,
-          replyToMessageId: payload.replyToMessageId
+          replyToMessageId: payload.replyToMessageId ?? null
         },
         include: {
           sender: {

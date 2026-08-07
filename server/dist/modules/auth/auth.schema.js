@@ -55,8 +55,8 @@ exports.updateProfileSchema = zod_1.z.object({
         .object({
         fullName: zod_1.z.string().trim().max(120).optional(),
         bio: zod_1.z.string().trim().max(500).nullable().optional(),
-        avatarUrl: zod_1.z.string().trim().max(2048).nullable().optional(),
-        coverUrl: zod_1.z.string().trim().max(2048).nullable().optional()
+        avatarUrl: zod_1.z.string().trim().max(10_000_000).nullable().optional(),
+        coverUrl: zod_1.z.string().trim().max(10_000_000).nullable().optional()
     })
         .passthrough()
 });

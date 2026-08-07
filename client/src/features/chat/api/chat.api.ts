@@ -27,6 +27,7 @@ export interface ConversationMessage {
   type: string;
   content: string | null;
   state: string;
+  replyToMessageId?: string | null;
   createdAt: string;
 }
 

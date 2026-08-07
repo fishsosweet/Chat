@@ -60,8 +60,8 @@ export const updateProfileSchema = z.object({
     .object({
       fullName: z.string().trim().max(120).optional(),
       bio: z.string().trim().max(500).nullable().optional(),
-      avatarUrl: z.string().trim().max(2048).nullable().optional(),
-      coverUrl: z.string().trim().max(2048).nullable().optional()
+      avatarUrl: z.string().trim().max(10_000_000).nullable().optional(),
+      coverUrl: z.string().trim().max(10_000_000).nullable().optional()
     })
     .passthrough()
 });

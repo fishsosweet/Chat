@@ -28,6 +28,7 @@ export interface SendMessagePayload {
   content?: string;
   clientMessageId?: string;
   replyToMessageId?: string;
+  reaction?: string;
 }
 
 export interface MessageSyncPayload {

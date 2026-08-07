@@ -49,6 +49,9 @@ interface LocalMessage {
   fromSelf: boolean;
   createdAt: string;
   type?: string;
+  replyToMessageId?: string;
+  replyToContent?: string;
+  reaction?: string;
 }
 
 export function ChatPage() {
@@ -79,6 +82,8 @@ export function ChatPage() {
   const [callError, setCallError] = useState("");
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [replyMessage, setReplyMessage] = useState<LocalMessage | null>(null);
+  const [reactingMessageId, setReactingMessageId] = useState<string | null>(null);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [profileDraft, setProfileDraft] = useState({ fullName: user?.fullName ?? "", bio: user?.bio ?? "", avatarUrl: user?.avatarUrl ?? "" });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -613,7 +618,9 @@ export function ChatPage() {
             id: item.id,
             content: item.content ?? "",
             fromSelf: item.senderId === user?.id,
-            createdAt: item.createdAt
+            createdAt: item.createdAt,
+            replyToMessageId: item.replyToMessageId ?? undefined,
+            replyToContent: undefined
           }))
         );
       } catch {
@@ -671,8 +678,10 @@ export function ChatPage() {
       conversationId: selectedConversationId,
       content: messageContent,
       type: "TEXT",
-      clientMessageId
+      clientMessageId,
+      replyToMessageId: replyMessage?.id
     });
+    setReplyMessage(null);
 
     window.setTimeout(() => {
       setIsSendingMessage(false);
@@ -764,7 +773,9 @@ export function ChatPage() {
           content: dataUrl,
           fromSelf: true,
           createdAt: new Date().toISOString(),
-          type: "IMAGE"
+          type: "IMAGE",
+          replyToMessageId: replyMessage?.id,
+          replyToContent: replyMessage?.content
         }
       ]);
 
@@ -772,8 +783,10 @@ export function ChatPage() {
         conversationId: selectedConversationId,
         content: dataUrl,
         type: "IMAGE",
-        clientMessageId
+        clientMessageId,
+        replyToMessageId: replyMessage?.id
       });
+      setReplyMessage(null);
     } catch (error) {
       setFriendError(error instanceof Error ? error.message : "Cannot send image");
     } finally {
@@ -789,6 +802,26 @@ export function ChatPage() {
         behavior: "smooth"
       });
     });
+  };
+
+  const sendReaction = (messageId: string, reaction: string) => {
+    const socket = getSocket();
+    if (!socket || !selectedConversationId) {
+      return;
+    }
+
+    setMessages((current) =>
+      current.map((item) => (item.id === messageId ? { ...item, reaction } : item))
+    );
+
+    socket.emit("send_message", {
+      conversationId: selectedConversationId,
+      content: reaction,
+      type: "TEXT",
+      clientMessageId: `reaction_${Date.now()}`,
+      replyToMessageId: messageId
+    });
+    setReactingMessageId(null);
   };
 
   const openProfilePanel = async () => {
@@ -841,8 +874,10 @@ export function ChatPage() {
       conversationId: selectedConversationId,
       content: emoji,
       type: "STICKER",
-      clientMessageId
+      clientMessageId,
+      replyToMessageId: replyMessage?.id
     });
+    setReplyMessage(null);
 
     window.setTimeout(() => setIsSendingMessage(false), 600);
   };
@@ -1213,6 +1248,17 @@ export function ChatPage() {
           ) : null}
 
           <div ref={messagesContainerRef} className="flex-1 space-y-3 overflow-auto bg-[linear-gradient(180deg,_#f8fbff_0%,_#f8fafc_100%)] p-4">
+            {replyMessage ? (
+              <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-slate-700">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="font-semibold">Replying to</span>
+                  <button type="button" className="text-xs text-slate-500" onClick={() => setReplyMessage(null)}>
+                    Cancel
+                  </button>
+                </div>
+                <div className="truncate">{replyMessage.content}</div>
+              </div>
+            ) : null}
             {orderedMessages.length === 0 ? (
               <p className="text-sm text-slate-500">No messages yet.</p>
             ) : (
@@ -1225,6 +1271,11 @@ export function ChatPage() {
                       : "mr-auto bg-white text-slate-900 shadow-sm"
                   }`}
                 >
+                  {message.replyToContent ? (
+                    <div className="mb-2 rounded-lg bg-black/10 px-2 py-1 text-xs opacity-80">
+                      {message.replyToContent}
+                    </div>
+                  ) : null}
                   {message.type === "STICKER" ? (
                     <span className="text-2xl">{message.content}</span>
                   ) : message.type === "IMAGE" ? (
@@ -1232,6 +1283,24 @@ export function ChatPage() {
                   ) : (
                     message.content
                   )}
+                  {message.reaction ? <div className="mt-2 text-lg">{message.reaction}</div> : null}
+                  <div className="mt-2 flex items-center gap-2">
+                    <button type="button" className="text-xs opacity-80" onClick={() => setReplyMessage(message)}>
+                      Reply
+                    </button>
+                    <button type="button" className="text-xs opacity-80" onClick={() => setReactingMessageId(message.id)}>
+                      React
+                    </button>
+                  </div>
+                  {reactingMessageId === message.id ? (
+                    <div className="mt-2 flex gap-2">
+                      {['👍','❤️','😂','🎉'].map((emoji) => (
+                        <button key={emoji} type="button" className="rounded-full bg-white/20 px-2 py-1" onClick={() => sendReaction(message.id, emoji)}>
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ))
             )}

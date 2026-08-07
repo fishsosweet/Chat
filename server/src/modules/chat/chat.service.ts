@@ -193,6 +193,7 @@ export const getConversationMessages = async (
       type: item.type,
       content: item.content,
       state: item.state,
+      replyToMessageId: item.replyToMessageId,
       createdAt: item.createdAt.toISOString()
     })),
     nextCursor: hasMore ? pageItems[pageItems.length - 1]?.createdAt.toISOString() ?? null : null

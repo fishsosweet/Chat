@@ -66,7 +66,7 @@ const registerChatEvents = (io, socket) => {
                     state: client_1.MessageState.SENT,
                     content: payload.content,
                     clientMessageId: payload.clientMessageId,
-                    replyToMessageId: payload.replyToMessageId
+                    replyToMessageId: payload.replyToMessageId ?? null
                 },
                 include: {
                     sender: {
