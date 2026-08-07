@@ -5,12 +5,20 @@ import { validateRequest } from "../../common/middlewares/validate-request.middl
 import {
   conversationListSchema,
   conversationMessagesSchema,
-  createDirectConversationSchema
+  createDirectConversationSchema,
+  createGroupSchema,
+  conversationIdParamSchema,
+  addGroupMembersSchema,
+  removeGroupMemberSchema
 } from "./chat.schema";
 import {
+  addGroupMembersController,
   createDirectConversationController,
+  createGroupController,
   getConversationMessagesController,
-  listConversationsController
+  getGroupMembersController,
+  listConversationsController,
+  removeGroupMemberController
 } from "./chat.controller";
 
 export const chatRouter = Router();
@@ -37,6 +45,58 @@ chatRouter.post(
   "/conversations/direct",
   validateRequest(createDirectConversationSchema),
   asyncHandler(createDirectConversationController)
+);
+
+/**
+ * @openapi
+ * /conversations/group:
+ *   post:
+ *     tags: [Chat]
+ *     summary: Create a group conversation
+ */
+chatRouter.post(
+  "/conversations/group",
+  validateRequest(createGroupSchema),
+  asyncHandler(createGroupController)
+);
+
+/**
+ * @openapi
+ * /conversations/{conversationId}/members:
+ *   get:
+ *     tags: [Chat]
+ *     summary: Get group members
+ */
+chatRouter.get(
+  "/conversations/:conversationId/members",
+  validateRequest(conversationIdParamSchema),
+  asyncHandler(getGroupMembersController)
+);
+
+/**
+ * @openapi
+ * /conversations/{conversationId}/members:
+ *   post:
+ *     tags: [Chat]
+ *     summary: Add members to a group
+ */
+chatRouter.post(
+  "/conversations/:conversationId/members",
+  validateRequest(addGroupMembersSchema),
+  asyncHandler(addGroupMembersController)
+);
+
+/**
+ * @openapi
+ * /conversations/{conversationId}/members/{userId}:
+ *   delete:
+ *     tags: [Chat]
+ *     summary: Remove a member from a group
+ */
+chatRouter.delete(
+  "/conversations/:conversationId/members/:userId",
+  validateRequest(removeGroupMemberSchema),
+  asyncHandler(removeGroupMemberController)
 );
 
 /**

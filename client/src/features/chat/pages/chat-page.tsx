@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   Check,
+  Download,
   Image,
   MoreHorizontal,
   Phone,
@@ -11,6 +12,7 @@ import {
   UserCircle2,
   UserMinus,
   UserPlus,
+  Users,
   Video,
   X
 } from "lucide-react";
@@ -21,7 +23,7 @@ import { ThemeToggle } from "@/features/shared/theme-toggle";
 import { ConversationList } from "@/features/chat/components/conversation-list";
 import { authStore } from "@/features/auth/store/auth.store";
 import { connectSocket, getSocket } from "@/lib/socket-client";
-import { chatApi } from "@/features/chat/api/chat.api";
+import { chatApi, type GroupMemberItem } from "@/features/chat/api/chat.api";
 import { authApi, type AuthUser } from "@/features/auth/api/auth.api";
 import type { ConversationItem } from "@/features/chat/api/chat.api";
 import { rtcApi } from "@/features/chat/api/rtc.api";
@@ -52,7 +54,17 @@ interface LocalMessage {
   replyToMessageId?: string;
   replyToContent?: string;
   reaction?: string;
+  senderAvatarUrl?: string | null;
+  senderName?: string;
 }
+
+const BUBBLE_PRESETS = [
+  { label: "Tím", gradient: "linear-gradient(135deg,#8b5cf6,#4f46e5)" },
+  { label: "Xanh", gradient: "linear-gradient(135deg,#38bdf8,#3b82f6)" },
+  { label: "Hồng", gradient: "linear-gradient(135deg,#f472b6,#f43f5e)" },
+  { label: "Xanh lá", gradient: "linear-gradient(135deg,#34d399,#0d9488)" },
+  { label: "Cam", gradient: "linear-gradient(135deg,#fb923c,#f59e0b)" }
+];
 
 export function ChatPage() {
   const user = authStore((state) => state.user);
@@ -60,8 +72,15 @@ export function ChatPage() {
   const logout = authStore((state) => state.logout);
 
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [selectedConversationType, setSelectedConversationType] = useState<"DIRECT" | "GROUP" | null>(null);
   const [selectedTargetUserId, setSelectedTargetUserId] = useState<string | null>(null);
   const [selectedConversationTitle, setSelectedConversationTitle] = useState<string | null>(null);
+  const [groupMembers, setGroupMembers] = useState<GroupMemberItem[]>([]);
+  const [showGroupPanel, setShowGroupPanel] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
+  const [groupPanelBusy, setGroupPanelBusy] = useState(false);
   const [draftMessage, setDraftMessage] = useState("");
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
@@ -89,6 +108,7 @@ export function ChatPage() {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [viewedProfile, setViewedProfile] = useState<AuthUser | null>(null);
   const [isLoadingProfile, setIsLoadingProfile] = useState(false);
+  const [bubbleGradient, setBubbleGradient] = useState(BUBBLE_PRESETS[0].gradient);
 
   const chatImageInputRef = useRef<HTMLInputElement | null>(null);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -140,8 +160,11 @@ export function ChatPage() {
       setFriendError("");
       const conversation = await chatApi.createDirectConversation(targetUserId);
       setSelectedConversationId(conversation.id);
+      setSelectedConversationType("DIRECT");
       setSelectedTargetUserId(targetUserId);
       setSelectedConversationTitle(title);
+      setGroupMembers([]);
+      setShowGroupPanel(false);
       setMessages([]);
     } catch (error) {
       setFriendError(error instanceof Error ? error.message : "Cannot open conversation");
@@ -149,6 +172,97 @@ export function ChatPage() {
       setFriendPanelBusy(false);
     }
   };
+
+  const loadGroupMembers = async (conversationId: string) => {
+    try {
+      const members = await chatApi.getGroupMembers(conversationId);
+      setGroupMembers(members);
+    } catch {
+      setGroupMembers([]);
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    const name = groupName.trim();
+    if (!name) {
+      setFriendError("Vui lòng nhập tên nhóm");
+      return;
+    }
+
+    try {
+      setGroupPanelBusy(true);
+      setFriendError("");
+      const group = await chatApi.createGroup(name, selectedGroupMemberIds);
+      setSelectedConversationId(group.id);
+      setSelectedConversationType("GROUP");
+      setSelectedTargetUserId(null);
+      setSelectedConversationTitle(group.title);
+      setGroupName("");
+      setSelectedGroupMemberIds([]);
+      setShowCreateGroup(false);
+      setShowGroupPanel(true);
+      setMessages([]);
+      await loadGroupMembers(group.id);
+    } catch (error) {
+      setFriendError(error instanceof Error ? error.message : "Không thể tạo nhóm");
+    } finally {
+      setGroupPanelBusy(false);
+    }
+  };
+
+  const handleAddGroupMember = async (memberUserId: string) => {
+    if (!selectedConversationId) {
+      return;
+    }
+
+    try {
+      setGroupPanelBusy(true);
+      setFriendError("");
+      const result = await chatApi.addGroupMembers(selectedConversationId, [memberUserId]);
+      setGroupMembers(result.members);
+    } catch (error) {
+      setFriendError(error instanceof Error ? error.message : "Không thể thêm thành viên");
+    } finally {
+      setGroupPanelBusy(false);
+    }
+  };
+
+  const handleRemoveGroupMember = async (memberUserId: string) => {
+    if (!selectedConversationId) {
+      return;
+    }
+
+    try {
+      setGroupPanelBusy(true);
+      setFriendError("");
+      const result = await chatApi.removeGroupMember(selectedConversationId, memberUserId);
+
+      if (result.action === "left" && memberUserId === user?.id) {
+        setSelectedConversationId(null);
+        setSelectedConversationType(null);
+        setSelectedConversationTitle(null);
+        setGroupMembers([]);
+        setShowGroupPanel(false);
+        setMessages([]);
+        return;
+      }
+
+      setGroupMembers(result.members);
+    } catch (error) {
+      setFriendError(error instanceof Error ? error.message : "Không thể loại thành viên");
+    } finally {
+      setGroupPanelBusy(false);
+    }
+  };
+
+  const toggleGroupMemberSelection = (memberUserId: string) => {
+    setSelectedGroupMemberIds((current) =>
+      current.includes(memberUserId) ? current.filter((id) => id !== memberUserId) : [...current, memberUserId]
+    );
+  };
+
+  const currentUserGroupRole = groupMembers.find((member) => member.userId === user?.id)?.role;
+  const canManageGroupMembers = currentUserGroupRole === "OWNER" || currentUserGroupRole === "ADMIN";
 
   const executeFriendAction = async (work: () => Promise<void>) => {
     try {
@@ -446,7 +560,16 @@ export function ChatPage() {
 
     const handleReceive = (payload: {
       conversationId: string;
-      message: { id: string; content: string | null; senderId: string; createdAt: string; type?: string; clientMessageId?: string; replyToMessageId?: string | null };
+      message: {
+        id: string;
+        content: string | null;
+        senderId: string;
+        createdAt: string;
+        type?: string;
+        clientMessageId?: string;
+        replyToMessageId?: string | null;
+        sender?: { id: string; fullName: string; avatarUrl: string | null };
+      };
     }) => {
       if (payload.conversationId !== selectedConversationId) {
         return;
@@ -480,7 +603,9 @@ export function ChatPage() {
             createdAt: payload.message.createdAt,
             type: payload.message.type,
             replyToMessageId: payload.message.replyToMessageId ?? undefined,
-            replyToContent: replyParent?.content
+            replyToContent: replyParent?.content,
+            senderAvatarUrl: payload.message.sender?.avatarUrl,
+            senderName: payload.message.sender?.fullName
           }
         ];
       });
@@ -490,7 +615,35 @@ export function ChatPage() {
       void loadFriendPanelData();
     };
 
+    const onGroupMemberChanged = (payload: {
+      conversationId: string;
+      action: "added" | "removed" | "left";
+      targetUserIds: string[];
+      members?: GroupMemberItem[];
+    }) => {
+      if (payload.conversationId !== selectedConversationId) {
+        return;
+      }
+
+      if (payload.members?.length) {
+        setGroupMembers(payload.members);
+        return;
+      }
+
+      void loadGroupMembers(payload.conversationId);
+
+      if (payload.action !== "added" && payload.targetUserIds.includes(user?.id ?? "")) {
+        setSelectedConversationId(null);
+        setSelectedConversationType(null);
+        setSelectedConversationTitle(null);
+        setGroupMembers([]);
+        setShowGroupPanel(false);
+        setMessages([]);
+      }
+    };
+
     socket.on("receive_message", handleReceive);
+    socket.on("group_member_changed", onGroupMemberChanged);
 
     const onCall = (payload: {
       conversationId: string;
@@ -599,9 +752,19 @@ export function ChatPage() {
       socket.off("reject", onCallEnded);
       socket.off("end", onCallEnded);
       socket.off("friendship_changed", onFriendshipChanged);
+      socket.off("group_member_changed", onGroupMemberChanged);
       socket.off("socket_error", onSocketError);
     };
   }, [selectedConversationId, tokens?.accessToken, user?.id]);
+
+  useEffect(() => {
+    if (!selectedConversationId || selectedConversationType !== "GROUP") {
+      setGroupMembers([]);
+      return;
+    }
+
+    void loadGroupMembers(selectedConversationId);
+  }, [selectedConversationId, selectedConversationType]);
 
   useEffect(() => {
     if (!selectedConversationId) {
@@ -626,7 +789,9 @@ export function ChatPage() {
           createdAt: item.createdAt,
           type: item.type,
           replyToMessageId: item.replyToMessageId ?? undefined,
-          replyToContent: undefined as string | undefined
+          replyToContent: undefined as string | undefined,
+          senderAvatarUrl: item.sender?.avatarUrl,
+          senderName: item.sender?.fullName
         }));
 
         // Populate reply quotes from the same page
@@ -841,6 +1006,20 @@ export function ChatPage() {
     });
   };
 
+  const scrollToMessage = (messageId: string) => {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (!el) {
+      return;
+    }
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.style.transition = "outline 0.2s";
+    el.style.outline = "2px solid #8b5cf6";
+    el.style.borderRadius = "1rem";
+    window.setTimeout(() => {
+      el.style.outline = "none";
+    }, 1400);
+  };
+
   const sendReaction = (messageId: string, reaction: string) => {
     // Local-only optimistic reaction – no new message bubble
     setMessages((current) =>
@@ -908,10 +1087,10 @@ export function ChatPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#f3f8ff,_#eef2ff_45%,_#f8fafc_100%)] p-4 md:p-6">
-      <div className="mx-auto grid h-[calc(100vh-2rem)] max-w-[1500px] grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <Card className="flex h-full flex-col overflow-hidden border-0 shadow-[0_20px_60px_-20px_rgba(15,23,42,0.35)]">
-          <header className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-sky-600 to-indigo-600 px-4 py-3 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-indigo-50 to-purple-50 p-3 md:p-5">
+      <div className="mx-auto grid h-[calc(100vh-1.5rem)] max-w-[1500px] grid-cols-1 gap-3 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <Card className="flex h-full flex-col overflow-hidden border border-violet-200 bg-white/80 shadow-[0_8px_32px_-8px_rgba(109,40,217,0.18)] backdrop-blur-sm">
+          <header className="flex items-center justify-between border-b border-violet-200 bg-gradient-to-r from-violet-500 via-indigo-500 to-purple-500 px-4 py-3 text-white">
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -940,10 +1119,10 @@ export function ChatPage() {
             </div>
           </header>
 
-          <div className="space-y-3 border-b border-slate-200 bg-slate-50/80 p-3">
+          <div className="space-y-3 border-b border-violet-100 bg-violet-50/70 p-3">
             <div className="flex gap-2">
               <Input
-                placeholder="Tim nguoi dung theo ten/email"
+                placeholder="Tìm người dùng theo tên/email"
                 value={friendKeyword}
                 onChange={(event) => setFriendKeyword(event.target.value)}
                 onKeyDown={(event) => {
@@ -952,16 +1131,17 @@ export function ChatPage() {
                     void searchFriendUsers();
                   }
                 }}
+                className="border-violet-200 bg-white text-slate-800 placeholder-slate-400 focus:border-violet-400"
               />
-              <Button size="sm" variant="outline" onClick={() => void searchFriendUsers()} disabled={searchingFriendUsers}>
-                <Search size={14} className="mr-1" /> Tim
+              <Button size="sm" variant="outline" onClick={() => void searchFriendUsers()} disabled={searchingFriendUsers} className="border-violet-300 text-violet-600 hover:bg-violet-50">
+                <Search size={14} className="mr-1" /> Tìm
               </Button>
             </div>
 
-            {friendError ? <p className="text-xs text-rose-600">{friendError}</p> : null}
+            {friendError ? <p className="text-xs text-rose-500">{friendError}</p> : null}
 
             {friendSearchResults.length ? (
-              <div className="max-h-36 space-y-2 overflow-auto rounded-lg border border-slate-200 bg-white p-2">
+              <div className="max-h-36 space-y-2 overflow-auto rounded-xl border border-violet-100 bg-white p-2 shadow-sm">
                 {friendSearchResults.map((item) => {
                   const relation = item.friendship;
                   const relationIsIncomingPending = relation?.status === "PENDING" && relation.direction === "incoming";
@@ -969,7 +1149,7 @@ export function ChatPage() {
                   const relationIsAccepted = relation?.status === "ACCEPTED";
 
                   return (
-                    <div key={item.id} className="flex items-center justify-between gap-2 rounded border border-slate-100 px-2 py-1">
+                    <div key={item.id} className="flex items-center justify-between gap-2 rounded-lg border border-violet-100 bg-violet-50/60 px-2 py-1">
                       <div className="min-w-0">
                         <p className="truncate text-xs font-semibold text-slate-800">{item.fullName}</p>
                         <p className="truncate text-[11px] text-slate-500">{item.email}</p>
@@ -1061,19 +1241,19 @@ export function ChatPage() {
             ) : null}
 
             <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg border border-slate-200 bg-white p-2">
-                <p className="mb-1 text-[11px] font-semibold text-slate-500">Incoming ({incomingRequests.length})</p>
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-2">
+                <p className="mb-1 text-[11px] font-semibold text-indigo-500">Yêu cầu ({incomingRequests.length})</p>
                 <div className="max-h-24 space-y-1 overflow-auto">
                   {incomingRequests.length === 0 ? (
-                    <p className="text-[11px] text-slate-400">No request</p>
+                    <p className="text-[11px] text-slate-400">Không có</p>
                   ) : (
                     incomingRequests.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between gap-1 text-[11px]">
+                      <div key={item.id} className="flex items-center justify-between gap-1 text-[11px] text-slate-700">
                         <span className="truncate">{item.requester?.fullName ?? "Unknown"}</span>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-6 px-2"
+                          className="h-6 border-indigo-300 px-2 text-indigo-600 hover:bg-indigo-50"
                           disabled={friendPanelBusy}
                           onClick={() =>
                             void executeFriendAction(async () => {
@@ -1089,20 +1269,20 @@ export function ChatPage() {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-200 bg-white p-2">
-                <p className="mb-1 text-[11px] font-semibold text-slate-500">Friends ({friendList.length})</p>
+              <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-2">
+                <p className="mb-1 text-[11px] font-semibold text-violet-500">Bạn bè ({friendList.length})</p>
                 <div className="max-h-24 space-y-1 overflow-auto">
                   {friendList.length === 0 ? (
-                    <p className="text-[11px] text-slate-400">No friends yet</p>
+                    <p className="text-[11px] text-slate-400">Chưa có bạn bè</p>
                   ) : (
                     friendList.map((item) => (
-                      <div key={item.friendId} className="flex items-center justify-between gap-1 text-[11px]">
+                      <div key={item.friendId} className="flex items-center justify-between gap-1 text-[11px] text-slate-700">
                         <span className="truncate">{item.user.fullName}</span>
                         <div className="flex items-center gap-1">
-                          <Button size="sm" className="h-6 px-2" disabled={friendPanelBusy} onClick={() => void openDirectConversation(item.user.id, item.user.fullName)}>
+                          <Button size="sm" className="h-6 bg-violet-500 px-2 hover:bg-violet-600" disabled={friendPanelBusy} onClick={() => void openDirectConversation(item.user.id, item.user.fullName)}>
                             Chat
                           </Button>
-                          <Button size="sm" variant="outline" className="h-6 px-2" disabled={friendPanelBusy} onClick={() => void handleRemoveFriend(item.friendId)}>
+                          <Button size="sm" variant="outline" className="h-6 border-rose-200 px-2 text-rose-500 hover:bg-rose-50" disabled={friendPanelBusy} onClick={() => void handleRemoveFriend(item.friendId)}>
                             <UserMinus size={12} />
                           </Button>
                         </div>
@@ -1113,7 +1293,7 @@ export function ChatPage() {
               </div>
             </div>
 
-            <p className="text-[11px] text-slate-500">Outgoing pending requests: {outgoingRequests.length}</p>
+            <p className="text-[11px] text-slate-400">Đang chờ xác nhận: {outgoingRequests.length}</p>
           </div>
 
           <div className="min-h-0 flex-1">
@@ -1121,109 +1301,142 @@ export function ChatPage() {
               selectedConversationId={selectedConversationId}
               onSelect={(conversation: ConversationItem) => {
                 setSelectedConversationId(conversation.id);
+                setSelectedConversationType(conversation.type);
                 setSelectedTargetUserId(conversation.counterpartUserId ?? null);
                 setSelectedConversationTitle(conversation.title);
+                setShowGroupPanel(conversation.type === "GROUP");
               }}
             />
           </div>
         </Card>
 
-        <Card className="flex h-full flex-col overflow-hidden border-0 shadow-[0_20px_60px_-20px_rgba(15,23,42,0.35)]">
-          <header className="border-b border-slate-200 bg-white/90 px-4 py-3">
+        <Card className="flex h-full flex-col overflow-hidden border border-indigo-200 bg-white/80 shadow-[0_8px_32px_-8px_rgba(99,102,241,0.18)] backdrop-blur-sm">
+          <header className="border-b border-indigo-100 bg-white/95 px-4 py-3">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-indigo-500 text-sm font-semibold text-white">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 text-sm font-semibold text-white shadow">
                   {selectedConversationTitle ? selectedConversationTitle.slice(0, 1).toUpperCase() : "✉"}
                 </div>
                 <div>
-                  <h3 className="text-base font-semibold text-slate-900">
-                    {selectedConversationId ? selectedConversationTitle ?? `Conversation ${selectedConversationId.slice(0, 8)}` : "Choose a conversation"}
+                  <h3 className="text-base font-semibold text-slate-800">
+                    {selectedConversationId ? selectedConversationTitle ?? `Conversation ${selectedConversationId.slice(0, 8)}` : "Chọn cuộc trò chuyện"}
                   </h3>
-                  <p className="text-xs text-slate-500">{selectedTargetUserId ? "Online now" : "Select a friend to chat"}</p>
+                  <p className="text-xs text-slate-500">
+                    {selectedConversationType === "GROUP"
+                      ? `${groupMembers.length || "..."} thành viên`
+                      : selectedTargetUserId
+                        ? "Đang online"
+                        : "Chọn bạn bè để chat"}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => void openProfilePanel()}>
-                  <UserCircle2 size={14} className="mr-1" /> Profile
+                {selectedConversationType === "GROUP" ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowGroupPanel((value) => !value)}
+                    className="border-violet-200 text-violet-600 hover:bg-violet-50"
+                  >
+                    <Users size={14} className="mr-1" /> Thành viên
+                  </Button>
+                ) : null}
+                <Button variant="outline" size="sm" onClick={() => void openProfilePanel()} disabled={selectedConversationType === "GROUP"} className="border-violet-200 text-violet-600 hover:bg-violet-50">
+                  <UserCircle2 size={14} className="mr-1" /> Trang cá nhân
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => void startCall("VOICE")} disabled={!selectedConversationId || !selectedTargetUserId || !!activeCallMode}>
-                  <Phone size={14} className="mr-1" /> Voice
+                <Button variant="outline" size="sm" onClick={() => void startCall("VOICE")} disabled={!selectedConversationId || selectedConversationType === "GROUP" || !selectedTargetUserId || !!activeCallMode} className="border-emerald-200 text-emerald-600 hover:bg-emerald-50">
+                  <Phone size={14} className="mr-1" /> Gọi
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => void startCall("VIDEO")} disabled={!selectedConversationId || !selectedTargetUserId || !!activeCallMode}>
+                <Button variant="outline" size="sm" onClick={() => void startCall("VIDEO")} disabled={!selectedConversationId || selectedConversationType === "GROUP" || !selectedTargetUserId || !!activeCallMode} className="border-sky-200 text-sky-600 hover:bg-sky-50">
                   <Video size={14} className="mr-1" /> Video
                 </Button>
                 {activeCallMode ? (
                   <Button variant="destructive" size="sm" onClick={endCall}>
-                    <PhoneOff size={14} className="mr-1" /> End
+                    <PhoneOff size={14} className="mr-1" /> Kết thúc
                   </Button>
                 ) : null}
+                <div className="flex items-center gap-1 border-l border-slate-200 pl-2">
+                  {BUBBLE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      title={preset.label}
+                      className="h-5 w-5 rounded-full border-2 transition-transform hover:scale-125"
+                      style={{
+                        background: preset.gradient,
+                        borderColor: bubbleGradient === preset.gradient ? "#1e1b4b" : "transparent"
+                      }}
+                      onClick={() => setBubbleGradient(preset.gradient)}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
             {callStatus ? <p className="mt-2 text-xs text-slate-500">{callStatus}</p> : null}
-            {callError ? <p className="mt-1 text-xs text-rose-600">{callError}</p> : null}
+            {callError ? <p className="mt-1 text-xs text-rose-500">{callError}</p> : null}
           </header>
 
           {incomingCall ? (
             <div className="flex items-center justify-between gap-3 border-b border-emerald-200 bg-emerald-50 px-4 py-2">
-              <p className="text-sm text-emerald-800">
-                Cuoc goi {incomingCall.callType === "VIDEO" ? "video" : "voice"} tu {incomingCall.fromUserId.slice(0, 8)}
+              <p className="text-sm text-emerald-700">
+                Cuộc gọi {incomingCall.callType === "VIDEO" ? "video" : "voice"} từ {incomingCall.fromUserId.slice(0, 8)}
               </p>
               <div className="flex items-center gap-2">
-                <Button variant="secondary" size="sm" onClick={() => void acceptIncomingCall()}>
-                  Nhan
+                <Button variant="secondary" size="sm" className="bg-emerald-500 text-white hover:bg-emerald-600" onClick={() => void acceptIncomingCall()}>
+                  Nhận
                 </Button>
                 <Button variant="destructive" size="sm" onClick={rejectIncomingCall}>
-                  Tu choi
+                  Từ chối
                 </Button>
               </div>
             </div>
           ) : null}
 
           {activeCallMode ? (
-            <div className="grid gap-2 border-b border-slate-200 bg-slate-950/95 p-3 md:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-slate-900 p-2">
-                <p className="mb-1 text-xs text-slate-300">You</p>
-                <video ref={localVideoRef} autoPlay muted playsInline className="h-32 w-full rounded bg-slate-800 object-cover" />
+            <div className="grid gap-2 border-b border-slate-200 bg-slate-100 p-3 md:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+                <p className="mb-1 text-xs text-slate-500">Bạn</p>
+                <video ref={localVideoRef} autoPlay muted playsInline className="h-32 w-full rounded bg-slate-100 object-cover" />
               </div>
-              <div className="rounded-2xl border border-white/10 bg-slate-900 p-2">
-                <p className="mb-1 text-xs text-slate-300">Friend</p>
-                <video ref={remoteVideoRef} autoPlay playsInline className="h-32 w-full rounded bg-slate-800 object-cover" />
+              <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+                <p className="mb-1 text-xs text-slate-500">Bạn bè</p>
+                <video ref={remoteVideoRef} autoPlay playsInline className="h-32 w-full rounded bg-slate-100 object-cover" />
                 <audio ref={remoteAudioRef} autoPlay />
               </div>
             </div>
           ) : null}
 
           {showProfilePanel ? (
-            <div className="border-b border-slate-200 bg-slate-50/90 p-4">
+            <div className="border-b border-indigo-100 bg-indigo-50/70 p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-slate-800">{selectedTargetUserId ? "Friend profile" : "Your profile"}</p>
-                  <p className="text-xs text-slate-500">{selectedTargetUserId ? "Viewing selected contact profile" : "Update your avatar, name, and bio"}</p>
+                  <p className="text-sm font-semibold text-slate-800">{selectedTargetUserId ? "Trang cá nhân bạn bè" : "Trang cá nhân"}</p>
+                  <p className="text-xs text-slate-500">{selectedTargetUserId ? "Xem thông tin liên hệ" : "Cập nhật ảnh đại diện, tên, giới thiệu"}</p>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setShowProfilePanel(false)}>
+                <Button variant="outline" size="sm" className="border-indigo-200 text-slate-600" onClick={() => setShowProfilePanel(false)}>
                   <MoreHorizontal size={14} />
                 </Button>
               </div>
 
               {selectedTargetUserId ? (
-                <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+                <div className="mt-3 rounded-2xl border border-indigo-100 bg-white p-3 shadow-sm">
                   {isLoadingProfile ? (
-                    <p className="text-sm text-slate-500">Loading profile...</p>
+                    <p className="text-sm text-slate-500">Đang tải...</p>
                   ) : viewedProfile ? (
                     <div className="space-y-2">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-indigo-500 text-lg font-semibold text-white">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 text-lg font-semibold text-white shadow">
                           {viewedProfile.fullName?.slice(0, 1).toUpperCase() || "U"}
                         </div>
                         <div>
-                          <p className="font-semibold text-slate-900">{viewedProfile.fullName}</p>
-                          <p className="text-sm text-slate-500">{viewedProfile.bio || "No bio yet"}</p>
+                          <p className="font-semibold text-slate-800">{viewedProfile.fullName}</p>
+                          <p className="text-sm text-slate-500">{viewedProfile.bio || "Chưa có giới thiệu"}</p>
                         </div>
                       </div>
-                      <p className="text-sm text-slate-600">{viewedProfile.email}</p>
+                      <p className="text-sm text-slate-500">{viewedProfile.email}</p>
                     </div>
                   ) : (
-                    <p className="text-sm text-slate-500">Profile unavailable for this contact.</p>
+                    <p className="text-sm text-slate-500">Không thể tải thông tin.</p>
                   )}
                 </div>
               ) : (
@@ -1232,7 +1445,7 @@ export function ChatPage() {
                     <button
                       type="button"
                       onClick={() => profileImageInputRef.current?.click()}
-                      className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-500 to-indigo-500 text-lg font-semibold text-white"
+                      className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 text-lg font-semibold text-white ring-2 ring-violet-200"
                     >
                       {profileDraft.avatarUrl ? (
                         <img src={profileDraft.avatarUrl} alt="avatar preview" className="h-full w-full object-cover" />
@@ -1244,7 +1457,8 @@ export function ChatPage() {
                       <Input
                         value={profileDraft.avatarUrl}
                         onChange={(event) => setProfileDraft((current) => ({ ...current, avatarUrl: event.target.value }))}
-                        placeholder="Avatar URL"
+                        placeholder="URL ảnh đại diện"
+                        className="border-indigo-200 bg-white text-slate-800 placeholder-slate-400 focus:border-indigo-400"
                       />
                       <input ref={profileImageInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => void handleProfileImageSelect(event)} />
                     </div>
@@ -1252,19 +1466,21 @@ export function ChatPage() {
                   <Input
                     value={profileDraft.fullName}
                     onChange={(event) => setProfileDraft((current) => ({ ...current, fullName: event.target.value }))}
-                    placeholder="Full name"
+                    placeholder="Tên hiển thị"
+                    className="border-indigo-200 bg-white text-slate-800 placeholder-slate-400 focus:border-indigo-400"
                   />
                   <Input
                     value={profileDraft.bio}
                     onChange={(event) => setProfileDraft((current) => ({ ...current, bio: event.target.value }))}
-                    placeholder="Bio"
+                    placeholder="Giới thiệu bản thân"
+                    className="border-indigo-200 bg-white text-slate-800 placeholder-slate-400 focus:border-indigo-400"
                   />
                   <div className="flex justify-end gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={() => setShowProfilePanel(false)}>
-                      Cancel
+                    <Button type="button" variant="outline" size="sm" className="border-slate-200 text-slate-600" onClick={() => setShowProfilePanel(false)}>
+                      Hủy
                     </Button>
-                    <Button type="button" size="sm" onClick={() => void saveProfile()} disabled={isSavingProfile}>
-                      {isSavingProfile ? "Saving..." : "Save"}
+                    <Button type="button" size="sm" className="bg-violet-500 hover:bg-violet-600" onClick={() => void saveProfile()} disabled={isSavingProfile}>
+                      {isSavingProfile ? "Đang lưu..." : "Lưu"}
                     </Button>
                   </div>
                 </div>
@@ -1272,73 +1488,107 @@ export function ChatPage() {
             </div>
           ) : null}
 
-          <div ref={messagesContainerRef} className="flex-1 space-y-3 overflow-auto bg-[linear-gradient(180deg,_#f8fbff_0%,_#f8fafc_100%)] p-4">
-            {replyMessage ? (
-              <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-slate-700">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="font-semibold">Replying to</span>
-                  <button type="button" className="text-xs text-slate-500" onClick={() => setReplyMessage(null)}>
-                    Cancel
-                  </button>
-                </div>
-                <div className="truncate">{replyMessage.content}</div>
-              </div>
-            ) : null}
+          <div ref={messagesContainerRef} className="flex-1 space-y-3 overflow-auto bg-gradient-to-b from-slate-50 to-indigo-50/60 p-4">
             {orderedMessages.length === 0 ? (
-              <p className="text-sm text-slate-500">No messages yet.</p>
+              <p className="text-sm text-slate-400">Chưa có tin nhắn.</p>
             ) : (
               orderedMessages.map((message) => (
                 <div
                   key={message.id}
-                  className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
-                    message.fromSelf
-                      ? "ml-auto bg-gradient-to-r from-sky-600 to-indigo-600 text-white"
-                      : "mr-auto bg-white text-slate-900 shadow-sm"
-                  }`}
+                  id={`msg-${message.id}`}
+                  className={`flex items-end gap-2 ${message.fromSelf ? "flex-row-reverse" : ""}`}
                 >
-                  {message.replyToContent ? (
-                    <div className="mb-2 rounded-lg bg-black/10 px-2 py-1 text-xs opacity-80">
-                      {message.replyToContent}
+                  {!message.fromSelf ? (
+                    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 text-xs font-semibold text-white shadow-sm">
+                      {message.senderAvatarUrl ? (
+                        <img src={message.senderAvatarUrl} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        message.senderName?.slice(0, 1).toUpperCase() ?? "?"
+                      )}
                     </div>
                   ) : null}
-                  {message.type === "STICKER" ? (
-                    <span className="text-2xl">{message.content}</span>
-                  ) : message.type === "IMAGE" ? (
-                    <img src={message.content} alt="sent image" className="max-h-72 max-w-full rounded-xl object-cover" />
-                  ) : (
-                    message.content
-                  )}
-                  {message.reaction ? <div className="mt-2 text-lg">{message.reaction}</div> : null}
-                  <div className="mt-2 flex items-center gap-2">
-                    <button type="button" className="text-xs opacity-80" onClick={() => setReplyMessage(message)}>
-                      Reply
-                    </button>
-                    <button type="button" className="text-xs opacity-80" onClick={() => setReactingMessageId(message.id)}>
-                      React
-                    </button>
+                  <div
+                    className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm transition-colors ${
+                      message.fromSelf
+                        ? "text-white shadow-md"
+                        : "border border-slate-100 bg-white text-slate-800 shadow-sm"
+                    }`}
+                    style={message.fromSelf ? { background: bubbleGradient } : undefined}
+                  >
+                    {message.replyToContent ? (
+                      <button
+                        type="button"
+                        className="mb-2 block w-full rounded-lg border-l-2 border-current bg-black/10 px-2 py-1 text-left text-xs opacity-75 hover:opacity-100"
+                        onClick={() => message.replyToMessageId && scrollToMessage(message.replyToMessageId)}
+                      >
+                        {message.replyToContent.startsWith("data:image") ? "[Ảnh]" : message.replyToContent}
+                      </button>
+                    ) : null}
+                    {message.type === "STICKER" ? (
+                      <span className="text-2xl">{message.content}</span>
+                    ) : message.type === "IMAGE" ? (
+                      <div className="group relative">
+                        <img src={message.content} alt="sent image" className="max-h-72 max-w-full rounded-xl object-cover" />
+                        <a
+                          href={message.content}
+                          download={`image_${message.id.slice(0, 8)}.jpg`}
+                          className="absolute bottom-2 right-2 flex hidden items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-xs text-white group-hover:flex"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Download size={11} /> Lưu
+                        </a>
+                      </div>
+                    ) : (
+                      message.content
+                    )}
+                    {message.reaction ? <div className="mt-1 text-base">{message.reaction}</div> : null}
+                    <div className="mt-1 flex items-center gap-2">
+                      <button type="button" className="text-[10px] opacity-60 hover:opacity-100" onClick={() => setReplyMessage(message)}>
+                        Trả lời
+                      </button>
+                      <button type="button" className="text-[10px] opacity-60 hover:opacity-100" onClick={() => setReactingMessageId(message.id)}>
+                        Cảm xúc
+                      </button>
+                    </div>
+                    {reactingMessageId === message.id ? (
+                      <div className="mt-1 flex gap-1">
+                        {['👍','❤️','😂','😮','😢','🎉'].map((emoji) => (
+                          <button key={emoji} type="button" className="rounded-full bg-white/10 px-2 py-1 text-sm hover:bg-white/20" onClick={() => sendReaction(message.id, emoji)}>
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                  {reactingMessageId === message.id ? (
-                    <div className="mt-2 flex gap-2">
-                      {['👍','❤️','😂','🎉'].map((emoji) => (
-                        <button key={emoji} type="button" className="rounded-full bg-white/20 px-2 py-1" onClick={() => sendReaction(message.id, emoji)}>
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
               ))
             )}
           </div>
 
-          <footer className="border-t border-slate-200 p-3">
+          {replyMessage ? (
+            <div className="flex items-center justify-between gap-3 border-t border-violet-200 bg-violet-50 px-4 py-2">
+              <button
+                type="button"
+                className="min-w-0 flex-1 text-left"
+                onClick={() => scrollToMessage(replyMessage.id)}
+              >
+                <p className="text-xs font-semibold text-violet-600">Trả lời</p>
+                <p className="truncate text-xs text-slate-600">{replyMessage.type === "IMAGE" ? "[Ảnh]" : replyMessage.content}</p>
+              </button>
+              <button type="button" className="text-xs text-slate-400 hover:text-slate-700" onClick={() => setReplyMessage(null)}>
+                Hủy
+              </button>
+            </div>
+          ) : null}
+
+          <footer className="border-t border-indigo-100 bg-white/90 p-3">
             {showStickerPicker ? (
-              <div className="mb-3 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+              <div className="mb-3 flex flex-wrap gap-2 rounded-2xl border border-violet-100 bg-violet-50 p-2 shadow-sm">
                 {stickerPack.map((sticker) => (
                   <button
                     key={sticker.id}
                     type="button"
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xl transition hover:-translate-y-0.5 hover:bg-slate-50"
+                    className="rounded-xl border border-violet-100 bg-white px-3 py-2 text-xl shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-50"
                     onClick={() => sendSticker(sticker.emoji)}
                   >
                     {sticker.emoji}
@@ -1347,15 +1597,15 @@ export function ChatPage() {
               </div>
             ) : null}
             <div className="flex gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setShowStickerPicker((value) => !value)}>
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowStickerPicker((value) => !value)} className="border-violet-200 text-violet-600 hover:bg-violet-50">
                 <Smile size={16} className="mr-1" /> Sticker
               </Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => chatImageInputRef.current?.click()}>
-                <Image size={16} className="mr-1" /> Image
+              <Button type="button" variant="outline" size="sm" onClick={() => chatImageInputRef.current?.click()} className="border-indigo-200 text-indigo-600 hover:bg-indigo-50">
+                <Image size={16} className="mr-1" /> Ảnh
               </Button>
               <input ref={chatImageInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(event) => void handleChatImageSelect(event)} />
               <Input
-                placeholder="Type your message..."
+                placeholder="Nhập tin nhắn..."
                 value={draftMessage}
                 onChange={(event) => setDraftMessage(event.target.value)}
                 onKeyDown={(event) => {
@@ -1364,9 +1614,10 @@ export function ChatPage() {
                     sendMessage();
                   }
                 }}
+                className="border-indigo-200 bg-white text-slate-800 placeholder-slate-400 focus:border-indigo-400"
               />
-              <Button onClick={sendMessage} disabled={!selectedConversationId || !draftMessage.trim() || isSendingMessage}>
-                <SendHorizonal size={16} className="mr-1" /> Send
+              <Button onClick={sendMessage} disabled={!selectedConversationId || !draftMessage.trim() || isSendingMessage} className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700">
+                <SendHorizonal size={16} className="mr-1" /> Gửi
               </Button>
             </div>
           </footer>

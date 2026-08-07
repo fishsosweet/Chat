@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { MessageCircleMore } from "lucide-react";
+import { MessageCircleMore, Users } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { chatApi, type ConversationItem } from "@/features/chat/api/chat.api";
@@ -109,8 +109,14 @@ export function ConversationList({
               onClick={() => onSelect(conversation)}
             >
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-slate-900">{conversation.title}</p>
+                <div className="flex items-center gap-1.5">
+                  {conversation.type === "GROUP" ? <Users size={13} className="flex-shrink-0 text-violet-500" /> : null}
+                  <p className="truncate text-sm font-medium text-slate-900">{conversation.title}</p>
+                </div>
                 <p className="truncate text-xs text-slate-500">
+                  {conversation.type === "GROUP" && conversation.memberCount
+                    ? `${conversation.memberCount} thành viên · `
+                    : ""}
                   {conversation.lastMessageAt ? formatRelativeTime(conversation.lastMessageAt) : "No messages"}
                 </p>
               </div>

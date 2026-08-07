@@ -21,7 +21,8 @@ export function AppProviders() {
     }
 
     connectSocket(tokens.accessToken);
-    void syncMe();
+    // Sync user data on startup; ignore errors so a stale token doesn't force logout
+    void syncMe().catch(() => undefined);
   }, [syncMe, tokens?.accessToken]);
 
   return (
